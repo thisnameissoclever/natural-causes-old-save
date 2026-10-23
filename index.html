@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Natural Causes: move your saved game</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f4ef;
+        --text: #1d1b18;
+        --muted: #5b5750;
+        --accent: #2f6b4f;
+        --accent-text: #ffffff;
+        --error: #a32020;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #161513;
+          --text: #ece9e2;
+          --muted: #aaa59b;
+          --accent: #5fae86;
+          --accent-text: #0e1a14;
+          --error: #ff8a80;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 17px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+      main {
+        max-width: 34rem;
+        margin: 0 auto;
+        padding: 40px 16px;
+      }
+      h1 {
+        font-size: 1.6rem;
+        line-height: 1.25;
+        margin: 0 0 16px;
+      }
+      ol {
+        padding-left: 1.4rem;
+      }
+      li + li {
+        margin-top: 6px;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 10px 20px;
+        border: 0;
+        border-radius: 6px;
+        background: var(--accent);
+        color: var(--accent-text);
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
+      #status {
+        min-height: 1.5em;
+        margin-top: 16px;
+      }
+      #status[data-kind='error'] {
+        color: var(--error);
+      }
+      a {
+        color: var(--accent);
+      }
+      .note {
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Move your Natural Causes save</h1>
+      <p>Natural Causes is now at <a href="https://natural-causes.life/">natural-causes.life</a>. Browsers keep saved games separately for each web address, so a game saved at the old address does not appear there by itself.</p>
+      <ol>
+        <li>Open this page in the browser and on the device where you played before.</li>
+        <li>Select <strong>Download save</strong>.</li>
+        <li>Open <a href="https://natural-causes.life/">natural-causes.life</a>, open <strong>Options</strong>, select <strong>Import save</strong>, and choose the downloaded file.</li>
+      </ol>
+      <button id="download" type="button">Download save</button>
+      <p id="status" role="status" aria-live="polite"></p>
+      <p class="note">This page only reads the saved game in this browser. It does not change or remove it.</p>
+    </main>
+    <script type="module">
+      // Matches the old game's storage: one file in the Origin Private File
+      // System, guarded by a named Web Lock while the game writes it.
+      const SAVE_FILE = 'terri-save-1.bin';
+      const SAVE_LOCK = 'terrilives-save-slot';
+      const MAGIC = [84, 69, 82, 82, 73, 83, 65, 86];
+
+      const button = document.getElementById('download');
+      const status = document.getElementById('status');
+
+      function show(message, error = false) {
+        status.textContent = message;
+        if (error) status.setAttribute('data-kind', 'error');
+        else status.removeAttribute('data-kind');
+      }
+
+      async function readSave() {
+        const root = await navigator.storage.getDirectory();
+        try {
+          const handle = await root.getFileHandle(SAVE_FILE);
+          return new Uint8Array(await (await handle.getFile()).arrayBuffer());
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'NotFoundError') return null;
+          throw error;
+        }
+      }
+
+      function fileName(date) {
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `natural-causes-save-${date.getFullYear()}-${month}-${day}.ncsave`;
+      }
+
+      function download(bytes) {
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName(new Date());
+        link.hidden = true;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
+
+      button.addEventListener('click', async () => {
+        if (!navigator.storage?.getDirectory) {
+          show('This browser cannot open saved games. Use the browser where you played before.', true);
+          return;
+        }
+        button.disabled = true;
+        show('Looking for a saved game');
+        try {
+          const bytes = navigator.locks
+            ? await navigator.locks.request(SAVE_LOCK, readSave)
+            : await readSave();
+          if (bytes === null || bytes.byteLength === 0) {
+            show('No saved game was found in this browser. Use the browser and device where you played before.', true);
+            return;
+          }
+          if (MAGIC.some((value, index) => bytes[index] !== value)) {
+            show('The saved data in this browser is not readable as a Natural Causes save.', true);
+            return;
+          }
+          download(bytes);
+          show('Saved game downloaded. Import it at natural-causes.life.');
+        } catch (error) {
+          console.error('reading the saved game failed:', error);
+          show('Could not read the saved game in this browser.', true);
+        } finally {
+          button.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
